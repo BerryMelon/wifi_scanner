@@ -16,7 +16,6 @@ args=parser.parse_args()
 interface = 'wlan1mon'
 scan_time = 20
 target_channel = -1
-number_of_channels = 12
 file_names = []
 stations = {}
 
@@ -42,6 +41,7 @@ def scan():
     print("Listening for nearby signals for {} sec".format(scan_time))
 
     start = 1
+    number_of_channels = 12
     if target_channel >= 0:
         start = target_channel
         number_of_channels = target_channel
