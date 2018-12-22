@@ -1,0 +1,129 @@
+#!/usr/bin/python3
+
+import time
+import csv
+import os
+import subprocess
+from subprocess import PIPE,Popen,DEVNULL
+import argparse
+parser = argparse.ArgumentParser()
+parser.add_argument('-t', help="scan time. default is 20 seconds", type= int)
+parser.add_argument('-i', help="interface. default is wlan1mon", type= str)
+parser.add_argument('-c', help="channel. default will scan from 1-12", type= int)
+
+args=parser.parse_args()
+
+interface = 'wlan1mon'
+scan_time = 20
+target_channel = -1
+number_of_channels = 12
+file_names = []
+stations = {}
+
+class Station:
+    name = ''
+    channel = 0
+    address = ''
+    connected_devices = []
+
+    def __repr__(self):
+        return f">>{self.name}\n>>{self.channel}\n>>{self.address}\n>>{self.connected_devices}"
+
+class Device:
+    address = ''
+    name = ''
+    vendor = ''
+    station = ''
+
+    def __repr__(self):
+       return f"--\n{self.address}\n{self.name}\n{self.vendor}\n{self.station}\n\n"
+
+def scan():
+    print("Listening for nearby signals for {} sec".format(scan_time))
+
+    start = 1
+    if target_channel >= 0:
+        start = target_channel
+        number_of_channels = target_channel
+
+    for channel in range(start,number_of_channels+1):
+        time.sleep(1)
+        print("Listening to channel {}".format(channel))
+        filename = 'output_ch{}'.format(channel)
+        file_names.append(filename)
+        proc = subprocess.Popen(['airodump-ng','-w',filename,'--output-format','csv', '-c', str(channel), interface], stdout=DEVNULL)
+        time.sleep(scan_time)
+        proc.terminate()
+        print(">> Channel #{} Complete. Saved at 'output_ch{}'".format(channel,channel))
+
+def format():
+    for f in file_names:
+        filename = f + '-01.csv'
+        is_station = True
+        with open(filename, mode='r') as csv_file:
+            csv_reader = csv.reader(csv_file, delimiter=',')
+            line_count = 0
+            for row in csv_reader:
+                if len(row) is 0 and line_count is 0:
+                    # ignore first. it's empty
+                    continue
+
+                if len(row) is 0:
+                    # new line. after this it's device.
+                    is_station = False
+                    line_count = 0
+                    continue
+
+                if line_count == 0:
+                    line_count += 1
+                else:
+                    if is_station:
+                        station = Station()
+                        station.name = row[13].strip()
+                        station.channel = row[3]
+                        station.address = row[0].strip()
+                        station.connected_devices = []
+                        stations[row[0].strip()] = station
+                    else:
+                        device = Device()
+                        device.address = row[0]
+                        device.name = row[6].strip()
+                        device.station = row[5].strip() if 'not associated' not in row[5] else ''
+                        if row[5].strip() in stations:
+                            stations[row[5].strip()].connected_devices.append(device)
+
+                    line_count += 1
+
+def write():
+
+    current_time = time.strftime("%Y%m%d_%H%M%S")
+    with open(f'result_{current_time}.txt', mode='w') as result_file:
+        for k in stations:
+            station = stations[k]
+            if len(station.connected_devices) is 0:
+                continue
+
+            result_file.write(f"Station: {station.name}\n")
+            result_file.write(f"\tESSID: {station.address}\n")
+            result_file.write(f"\tCH: {station.channel}\n")
+            for device in station.connected_devices:
+                result_file.write(f"\t\t{device.address}\n")
+            result_file.write("\n")
+
+def clean():
+    os.system("rm output_*")
+
+if __name__ == "__main__":
+    if args.i is not None:
+        interface = args.i
+    if args.t is not None:
+        scan_time = args.t
+    if args.c is not None:
+        target_channel = args.c
+
+    scan()
+    format()
+    write()
+
+    clean()
+
